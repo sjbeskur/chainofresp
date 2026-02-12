@@ -1,24 +1,17 @@
-use chainofresp::*;
+use chainofresp::{Chain, CheckFileType, Context, DisplayImage, ReadImage};
 
 fn main() {
-    println!("Hello, world!");
+    let mut ctx = Context {
+        file: "input.jpg".to_string(),
+        ..Default::default()
+    };
 
+    let chain = Chain::new()
+        .add(CheckFileType)
+        .add(ReadImage)
+        .add(DisplayImage);
 
-    let mut machines : Vec<Box<dyn Machine<MachineRequestImpl, MachineResponsImpl>>> = Vec::new();
-
-    machines.push(Box::new(CheckFileTypeMachine{}));
-    machines.push(Box::new(ReadImageMachine{}));
-    machines.push(Box::new(DisplayImageMachine{}));
-
-    let mut rq = MachineRequestImpl{ parms: std::collections::HashMap::from([("file".into(),"".into())]), };
-
-    for m in machines{
-        let resp = m.process(rq.clone());
-
-        rq = MachineRequestImpl{ parms: Default::default()};
-        rq.parms = resp.get_output();
-
-
+    if let Err(err) = chain.run(&mut ctx) {
+        eprintln!("chain failed: {}", err);
     }
-
 }

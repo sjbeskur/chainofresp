@@ -1,75 +1,100 @@
-use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 
-pub trait MachineRequest{
-    fn get_params(&self) -> HashMap<String,String>;
+#[derive(Debug, Default)]
+pub struct Context {
+    pub file: String,
+    pub image: Option<String>,
+    pub bytes: Option<Vec<u8>>,
 }
 
-pub trait MachineResponse{
-    fn get_output(&self) -> HashMap<String,String>;
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Flow {
+    Continue,
+    Stop,
 }
 
-
-#[derive(Debug,Clone)]
-pub struct MachineRequestImpl{
-    pub parms: HashMap<String,String>,
+#[derive(Debug)]
+pub enum ChainError {
+    MissingField(&'static str),
+    InvalidInput(&'static str),
 }
 
-impl MachineRequest for MachineRequestImpl{
-    fn get_params(&self) -> HashMap<String,String>{
-        self.parms.clone()
+impl fmt::Display for ChainError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ChainError::MissingField(name) => write!(f, "missing field: {}", name),
+            ChainError::InvalidInput(msg) => write!(f, "invalid input: {}", msg),
+        }
     }
 }
 
-#[derive(Debug,Clone)]
-pub struct MachineResponsImpl{
-    output: HashMap<String,String>,
+impl Error for ChainError {}
+
+pub trait Handler {
+    fn handle(&self, ctx: &mut Context) -> Result<Flow, ChainError>;
 }
 
-impl MachineResponse for MachineResponsImpl{
-    fn get_output(&self) -> HashMap<String,String>{
-        self.output.clone()
+pub struct Chain {
+    handlers: Vec<Box<dyn Handler>>,
+}
+
+impl Chain {
+    pub fn new() -> Self {
+        Self { handlers: Vec::new() }
+    }
+
+    pub fn add<H: Handler + 'static>(mut self, handler: H) -> Self {
+        self.handlers.push(Box::new(handler));
+        self
+    }
+
+    pub fn run(&self, ctx: &mut Context) -> Result<(), ChainError> {
+        for handler in &self.handlers {
+            match handler.handle(ctx)? {
+                Flow::Continue => continue,
+                Flow::Stop => break,
+            }
+        }
+        Ok(())
     }
 }
 
+pub struct CheckFileType;
+pub struct ReadImage;
+pub struct DisplayImage;
 
-pub trait Machine<T:MachineRequest, U:MachineResponse>{
-    fn process(&self, machine_request: T) -> U;
-}
+impl Handler for CheckFileType {
+    fn handle(&self, ctx: &mut Context) -> Result<Flow, ChainError> {
+        if ctx.file.trim().is_empty() {
+            return Err(ChainError::MissingField("file"));
+        }
 
-pub struct CheckFileTypeMachine{}
-pub struct ReadImageMachine{}
-pub struct DisplayImageMachine{}
-
-impl Machine<MachineRequestImpl, MachineResponsImpl> for CheckFileTypeMachine{
-    fn process(&self, request: MachineRequestImpl) -> MachineResponsImpl {
-        let mut resp = MachineResponsImpl{ output: Default::default() };
-        let val = request.parms.get("file");
-        if val == None { panic!("file is missing "); }
-
-        resp.output.insert("image".into(), "lena.png".into());
-        resp.clone()
+        ctx.image = Some("lena.png".to_string());
+        Ok(Flow::Continue)
     }
 }
 
-impl Machine<MachineRequestImpl, MachineResponsImpl> for ReadImageMachine{
-    fn process(&self, request: MachineRequestImpl) -> MachineResponsImpl {
-        let mut resp = MachineResponsImpl{ output: Default::default() };
-        let val = request.parms.get("image");
-        if val == None { panic!("image is missing"); }
+impl Handler for ReadImage {
+    fn handle(&self, ctx: &mut Context) -> Result<Flow, ChainError> {
+        let image = ctx.image.as_ref().ok_or(ChainError::MissingField("image"))?;
+        if image.trim().is_empty() {
+            return Err(ChainError::InvalidInput("image"));
+        }
 
-        resp.output.insert("bytes".into(), "[asdfasdfasdfasdfasdfasdfadf]".into());        
-        resp.clone()
+        ctx.bytes = Some(b"fake-image-bytes".to_vec());
+        Ok(Flow::Continue)
     }
 }
 
-impl Machine<MachineRequestImpl, MachineResponsImpl> for DisplayImageMachine{
-    fn process(&self, request: MachineRequestImpl) -> MachineResponsImpl {
-        let resp = MachineResponsImpl{ output: Default::default() };
-        let val = request.parms.get("bytes");
-        if val == None { panic!("missing bytes"); }
+impl Handler for DisplayImage {
+    fn handle(&self, ctx: &mut Context) -> Result<Flow, ChainError> {
+        let bytes = ctx
+            .bytes
+            .as_ref()
+            .ok_or(ChainError::MissingField("bytes"))?;
 
-        println!("{}", request.parms.get("bytes").unwrap());        
-
-        resp.clone()
+        println!("{} bytes", bytes.len());
+        Ok(Flow::Stop)
     }
 }
